@@ -70,6 +70,7 @@
             this.pictureBox1 = new System.Windows.Forms.PictureBox();
             this.button3 = new System.Windows.Forms.Button();
             this.button4 = new System.Windows.Forms.Button();
+            this.labelStats = new System.Windows.Forms.Label();
             this.tabControl1.SuspendLayout();
             this.tabPage1.SuspendLayout();
             this.groupBox2.SuspendLayout();
@@ -320,9 +321,9 @@
             // 
             // textBox8
             // 
-            this.textBox8.Location = new System.Drawing.Point(233, 315);
+            this.textBox8.Location = new System.Drawing.Point(240, 315);
             this.textBox8.Name = "textBox8";
-            this.textBox8.Size = new System.Drawing.Size(128, 22);
+            this.textBox8.Size = new System.Drawing.Size(121, 22);
             this.textBox8.TabIndex = 16;
             this.textBox8.Text = "0";
             // 
@@ -456,6 +457,7 @@
             // 
             // tabPage2
             // 
+            this.tabPage2.Controls.Add(this.labelStats);
             this.tabPage2.Controls.Add(this.button4);
             this.tabPage2.Controls.Add(this.button3);
             this.tabPage2.Controls.Add(this.pictureBox1);
@@ -506,7 +508,16 @@
             this.button4.Text = "Стоп";
             this.button4.UseVisualStyleBackColor = true;
             this.button4.Click += new System.EventHandler(this.button4_Click);
-            // 
+            //
+            // labelStats
+            //
+            this.labelStats.Location = new System.Drawing.Point(6, 483);
+            this.labelStats.Name = "labelStats";
+            this.labelStats.Size = new System.Drawing.Size(454, 34);
+            this.labelStats.TabIndex = 4;
+            this.labelStats.Text = "День 0";
+            this.labelStats.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            //
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
@@ -572,6 +583,7 @@
         private System.Windows.Forms.PictureBox pictureBox1;
         private System.Windows.Forms.Button button4;
         private System.Windows.Forms.Button button3;
+        private System.Windows.Forms.Label labelStats;
     }
 }
 

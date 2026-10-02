@@ -1,22 +1,31 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.Windows.Forms;
 
 namespace CHMBP1
 {
     public partial class Form1 : Form
     {
-        private const int HEIGHT = 50;
-        private const int WIDTH = 51;
+        private const int CellSize = 10;
 
-        private int duration = 2000;
-        private int startImmunityPercent = 1;
-        private int startIllPercent = 10;
-        private int illnessDeathRate = 100;
+        private static readonly Color HealthyColor = ColorTranslator.FromHtml("#A5D6A7");
+        private static readonly Color InfectedColor = ColorTranslator.FromHtml("#E53935");
+        private static readonly Color ImmuneColor = ColorTranslator.FromHtml("#64B5F6");
+        private static readonly Color DeadColor = ColorTranslator.FromHtml("#424242");
 
-        private readonly Person[,] persons = new Person[HEIGHT, WIDTH];
-        private readonly Random rand = new Random();
+        private readonly Random random = new Random();
+        private readonly Timer timer1 = new Timer();
+
+        // Кисти создаются один раз: раньше на каждую клетку каждого кадра создавалась новая кисть.
+        private readonly SolidBrush healthyBrush = new SolidBrush(HealthyColor);
+        private readonly SolidBrush infectedBrush = new SolidBrush(InfectedColor);
+        private readonly SolidBrush immuneBrush = new SolidBrush(ImmuneColor);
+        private readonly SolidBrush deadBrush = new SolidBrush(DeadColor);
+
+        private Simulation simulation;
+        private int durationDays;
 
         public Form1()
         {
@@ -32,293 +41,242 @@ namespace CHMBP1
             timer1.Interval = 300; // скорость: 1 день = 300 мс
             timer1.Tick += Timer1_Tick;
 
-            InitializePopulation();
-            DrawField();
+            // По умолчанию радиус 1 (четыре соседа). Раньше поле было пустым, галочки соседей
+            // не стояли, и вирус не мог передаваться, а первый же шаг падал на int.Parse("").
+            textBox10.Text = "1";
+
+            // Значения в полях уже заполнены, поэтому применяем их сразу:
+            // раньше до нажатия «Применить» вирус работал с нулевыми параметрами.
+            ApplySettings(false);
         }
 
-
-        private void InitializePopulation()
+        protected override void OnFormClosed(FormClosedEventArgs e)
         {
-            for (int i = 0; i < HEIGHT; i++)
-            {
-                for (int j = 0; j < WIDTH; j++)
-                {
-                    bool hasImmunity = rand.Next(1, 101) <= startImmunityPercent;
-                    persons[i, j] = new Person(hasImmunity);
-                    if (hasImmunity)
-                        persons[i, j].CurrentState = Person.State.Immune;
-                }
-            }
-
-            for (int i = 0; i < HEIGHT; i++)
-            {
-                if (rand.Next(1, 101) <= startIllPercent)
-                    persons[i, 0].CurrentState = Person.State.Infected;
-            }
+            timer1.Stop();
+            timer1.Dispose();
+            DisposeImage();
+            healthyBrush.Dispose();
+            infectedBrush.Dispose();
+            immuneBrush.Dispose();
+            deadBrush.Dispose();
+            base.OnFormClosed(e);
         }
 
-        private static class Virus
-        {
-            public static int IncubationPeriod = 2;
-            public static int InfectionChance;
-            public static int Lethality = 0;
-            public static int IllnessDuration = 0;
-            public static int ImmunityDuration = 2;
-        }
-
-        public class Person
-        {
-            public enum State
-            {
-                Healthy,
-                Infected,
-                Immune,
-                Dead
-            }
-
-            public State CurrentState { get; set; }
-            public bool IsAlive { get; set; }
-            public int IllnessTime { get; set; }
-            public bool IsVaccinated { get; set; }
-            public bool HasImmunity { get; set; }
-            public int ImmunityDays { get; set; }
-            public int IncubationTime { get; set; }
-
-            public Person(bool hasImmunity)
-            {
-                CurrentState = hasImmunity ? State.Immune : State.Healthy;
-                IsAlive = true;
-                IllnessTime = 0;
-                IsVaccinated = false;
-                HasImmunity = hasImmunity;
-                ImmunityDays = 0;
-                IncubationTime = 0;
-            }
-
-            public bool TryInfect(Person source, int infectionRoll)
-            {
-                return IsAlive &&
-                       CurrentState == State.Healthy &&
-                       source.CurrentState == State.Infected &&
-                       infectionRoll <= Virus.InfectionChance;
-            }
-        }
+        // Настройки
 
         private void button1_Click(object sender, EventArgs e)
         {
-            try
-            {
-                duration = int.Parse(textBox1.Text);
-                Virus.IncubationPeriod = int.Parse(textBox6.Text);
-                Virus.InfectionChance = int.Parse(textBox4.Text);
-                Virus.Lethality = int.Parse(textBox3.Text);
-                Virus.ImmunityDuration = int.Parse(textBox2.Text);
-                startImmunityPercent = int.Parse(textBox1.Text);
-                startIllPercent = int.Parse(textBox7.Text);
-                illnessDeathRate = int.Parse(textBox8.Text);
-                Virus.IllnessDuration = int.Parse(textBox9.Text);
-
-                textBox10_TextChanged(null, null); 
-
-                InitializePopulation();
-                DrawField();
-            }
-            catch
-            {
-                MessageBox.Show("error 001");
-            }
+            ApplySettings(true);
         }
 
+        /// <summary>Читает параметры из полей и начинает новый эксперимент. true, если всё корректно.</summary>
+        private bool ApplySettings(bool showErrors)
+        {
+            VirusParameters parameters;
+            string error = ReadParameters(out parameters);
+            if (error != null)
+            {
+                if (showErrors)
+                    MessageBox.Show(error, "Некорректные параметры", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
 
+            // Пресеты радиуса (1 или 2) выставляют галочки соседей.
+            textBox10_TextChanged(null, null);
+
+            timer1.Stop();
+            durationDays = parameters.DurationDays;
+            simulation = new Simulation(parameters, ReadNeighbors(), random);
+            Redraw();
+            return true;
+        }
+
+        private string ReadParameters(out VirusParameters parameters)
+        {
+            parameters = new VirusParameters();
+            string error;
+
+            if ((error = ReadInt(textBox5, "Длительность эксперимента", out parameters.DurationDays)) != null) return error;
+            if ((error = ReadInt(textBox6, "Инкубационный период", out parameters.IncubationDays)) != null) return error;
+            if ((error = ReadInt(textBox4, "Вероятность заражения", out parameters.InfectionChance)) != null) return error;
+            if ((error = ReadInt(textBox3, "Вероятность смерти", out parameters.Lethality)) != null) return error;
+            if ((error = ReadInt(textBox2, "Период иммунитета", out parameters.ImmunityDays)) != null) return error;
+            if ((error = ReadInt(textBox1, "Начальный % иммунитета", out parameters.InitialImmunePercent)) != null) return error;
+            if ((error = ReadInt(textBox7, "Начальный % больных", out parameters.InitialInfectedPercent)) != null) return error;
+            if ((error = ReadInt(textBox8, "Исчезновение больных с границ", out parameters.BorderDisappearPercent)) != null) return error;
+            if ((error = ReadInt(textBox9, "Длительность болезни", out parameters.IllnessDays)) != null) return error;
+
+            return parameters.Validate();
+        }
+
+        private static string ReadInt(TextBox box, string fieldName, out int value)
+        {
+            if (!int.TryParse(box.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+                return "Поле «" + fieldName + "» должно быть целым числом.";
+            return null;
+        }
+
+        /// <summary>Радиус 1: четыре соседа по сторонам, радиус 2: все двенадцать клеток.</summary>
         private void textBox10_TextChanged(object sender, EventArgs e)
         {
-            try
+            int radius;
+            if (!int.TryParse(textBox10.Text.Trim(), out radius))
+                return;
+
+            if (radius == 1)
             {
-                if (Convert.ToInt32(textBox10.Text) == 1)
-                {
-                    checkBox7.Checked = true;
-                    checkBox1.Checked = false;
-                    checkBox2.Checked = false;
-                    checkBox3.Checked = false;
-                    checkBox4.Checked = false;
-                    checkBox5.Checked = true;
-                    checkBox6.Checked = true;
-                    checkBox8.Checked = false;
-                    checkBox9.Checked = true;
-                    checkBox10.Checked = false;
-                    checkBox11.Checked = false;
-                    checkBox12.Checked = false;
-
-                }
-                if (Convert.ToInt32(textBox10.Text) == 2)
-                {
-                    checkBox7.Checked = true;
-                    checkBox1.Checked = true;
-                    checkBox2.Checked = true;
-                    checkBox3.Checked = true;
-                    checkBox4.Checked = true;
-                    checkBox5.Checked = true;
-                    checkBox6.Checked = true;
-                    checkBox8.Checked = true;
-                    checkBox9.Checked = true;
-                    checkBox10.Checked = true;
-                    checkBox11.Checked = true;
-                    checkBox12.Checked = true;
-
-                }
+                SetNeighborChecks(checkBox7, checkBox5, checkBox6, checkBox9);
             }
-            catch { }
+            else if (radius == 2)
+            {
+                SetNeighborChecks(
+                    checkBox1, checkBox2, checkBox3, checkBox4, checkBox5, checkBox6,
+                    checkBox7, checkBox8, checkBox9, checkBox10, checkBox11, checkBox12);
+            }
         }
 
-        private void SimulateInfection()
+        /// <summary>Отмечает только перечисленные галочки, остальные снимает.</summary>
+        private void SetNeighborChecks(params CheckBox[] checkedBoxes)
         {
-            int radius = int.Parse(textBox10.Text);
-            Person.State[,] newStates = new Person.State[HEIGHT, WIDTH];
-
-            Dictionary<(int, int), CheckBox> directionMap = new Dictionary<(int, int), CheckBox>
-    {
-        { (-2,  0), checkBox4 },
-        { (-1, -1), checkBox12 },
-        { (-1,  0), checkBox7 },
-        { (-1, +1), checkBox8 },
-        { ( 0, -2), checkBox3 },
-        { ( 0, -1), checkBox9 },
-        { ( 0, +1), checkBox6 },
-        { ( 0, +2), checkBox1 },
-        { (+1, -1), checkBox10 },
-        { (+1,  0), checkBox5 },
-        { (+1, +1), checkBox11 },
-        { (+2,  0), checkBox2 }
-    };
-
-            for (int i = 0; i < HEIGHT; i++)
-            {
-                for (int j = 0; j < WIDTH; j++)
-                {
-                    var person = persons[i, j];
-
-                    if (!person.IsAlive)
-                    {
-                        newStates[i, j] = Person.State.Dead;
-                        continue;
-                    }
-
-                    // Заболевание и выздоровление
-                    if (person.CurrentState == Person.State.Infected)
-                    {
-                        person.IllnessTime++;
-                        if (person.IllnessTime >= Virus.IllnessDuration)
-                        {
-                            if (rand.Next(1, 101) <= Virus.Lethality)
-                            {
-                                newStates[i, j] = Person.State.Dead;
-                                person.IsAlive = false;
-                                continue;
-                            }
-                            else
-                            {
-                                newStates[i, j] = Person.State.Immune;
-                                person.ImmunityDays = Virus.ImmunityDuration;
-                                continue;
-                            }
-                        }
-                        newStates[i, j] = Person.State.Infected;
-                    }
-                    else if (person.CurrentState == Person.State.Immune)
-                    {
-                        person.ImmunityDays--;
-                        newStates[i, j] = (person.ImmunityDays <= 0) ? Person.State.Healthy : Person.State.Immune;
-                    }
-                    else
-                    {
-                        newStates[i, j] = person.CurrentState;
-                    }
-
-                    // Попытка заразиться от соседа
-                    if (person.CurrentState == Person.State.Healthy && !person.IsVaccinated)
-                    {
-                        foreach (KeyValuePair<(int, int), CheckBox> entry in directionMap)
-                        {
-                            if (!entry.Value.Checked) continue;
-
-                            int di = entry.Key.Item1;
-                            int dj = entry.Key.Item2;
-
-                            int ni = (i + di + HEIGHT) % HEIGHT; // вертикальная цикличность
-                            int nj = j + dj;                     // горизонталь без цикличности
-
-                            if (nj < 0 || nj >= WIDTH) continue; // ограничение границ
-
-                            var neighbor = persons[ni, nj];
-                            int roll = rand.Next(1, 101);
-
-                            if (person.TryInfect(neighbor, roll))
-                            {
-                                newStates[i, j] = Person.State.Infected;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Применение новых состояний
-            for (int i = 0; i < HEIGHT; i++)
-            {
-                for (int j = 0; j < WIDTH; j++)
-                {
-                    persons[i, j].CurrentState = newStates[i, j];
-                }
-            }
+            List<CheckBox> selected = new List<CheckBox>(checkedBoxes);
+            foreach (KeyValuePair<Offset, CheckBox> entry in NeighborMap())
+                entry.Value.Checked = selected.Contains(entry.Value);
         }
+
+        /// <summary>Какая галочка отвечает за какого соседа (строка, столбец относительно клетки).</summary>
+        private Dictionary<Offset, CheckBox> NeighborMap()
+        {
+            return new Dictionary<Offset, CheckBox>
+            {
+                { new Offset(-2, 0), checkBox4 },
+                { new Offset(-1, -1), checkBox12 },
+                { new Offset(-1, 0), checkBox7 },
+                { new Offset(-1, +1), checkBox8 },
+                { new Offset(0, -2), checkBox3 },
+                { new Offset(0, -1), checkBox9 },
+                { new Offset(0, +1), checkBox6 },
+                { new Offset(0, +2), checkBox1 },
+                { new Offset(+1, -1), checkBox10 },
+                { new Offset(+1, 0), checkBox5 },
+                { new Offset(+1, +1), checkBox11 },
+                { new Offset(+2, 0), checkBox2 }
+            };
+        }
+
+        private List<Offset> ReadNeighbors()
+        {
+            List<Offset> offsets = new List<Offset>();
+            foreach (KeyValuePair<Offset, CheckBox> entry in NeighborMap())
+                if (entry.Value.Checked)
+                    offsets.Add(entry.Key);
+            return offsets;
+        }
+
+        // Эксперимент
+
         private void button2_Click(object sender, EventArgs e)
         {
-            SimulateInfection();
-            DrawField();
-        }
-        private void DrawField()
-        {
-            int cellSize = 10;
-            Bitmap bmp = new Bitmap(WIDTH * cellSize, HEIGHT * cellSize);
-            using (Graphics g = Graphics.FromImage(bmp))
-            {
-                for (int i = 0; i < HEIGHT; i++)
-                {
-                    for (int j = 0; j < WIDTH; j++)
-                    {
-                        Brush brush = Brushes.White;
-                        switch (persons[i, j].CurrentState)
-                        {
-                            case Person.State.Healthy:
-                                brush = new SolidBrush(ColorTranslator.FromHtml("#A5D6A7")); break; // насыщенный зелёный
-                            case Person.State.Infected:
-                                brush = new SolidBrush(ColorTranslator.FromHtml("#FFCDD2")); break; // нежный красный
-                            case Person.State.Immune:
-                                brush = new SolidBrush(ColorTranslator.FromHtml("#BBDEFB")); break; // мягкий синий
-                            case Person.State.Dead:
-                                brush = new SolidBrush(ColorTranslator.FromHtml("#2196F3")); break;
-                        }
-                        g.FillRectangle(brush, j * cellSize, i * cellSize, cellSize - 1, cellSize - 1);
-                    }
-                }
-            }
-            pictureBox1.Image = bmp;
-        }
-        private Timer timer1 = new Timer();
-        private void Timer1_Tick(object sender, EventArgs e)
-        {
-            SimulateInfection();
-            DrawField();
+            NextDay();
         }
 
         private void button3_Click(object sender, EventArgs e)
         {
+            if (simulation == null || IsFinished())
+                return;
             timer1.Start();
         }
 
         private void button4_Click(object sender, EventArgs e)
         {
-           timer1.Stop();
+            timer1.Stop();
+        }
+
+        private void Timer1_Tick(object sender, EventArgs e)
+        {
+            NextDay();
+        }
+
+        private bool IsFinished()
+        {
+            return simulation.Day >= durationDays || simulation.IsOver;
+        }
+
+        private void NextDay()
+        {
+            if (simulation == null || IsFinished())
+            {
+                timer1.Stop();
+                return;
+            }
+
+            simulation.Step();
+            Redraw();
+
+            // Эксперимент закончился по времени или больных не осталось.
+            if (IsFinished())
+                timer1.Stop();
+        }
+
+        // Отрисовка
+
+        private void Redraw()
+        {
+            DrawField();
+            UpdateStats();
+        }
+
+        private void UpdateStats()
+        {
+            string title = string.Format("День {0} из {1}", simulation.Day, durationDays);
+            if (simulation.IsOver)
+                title += ": эпидемия закончилась";
+            else if (simulation.Day >= durationDays)
+                title += ": эксперимент завершён";
+
+            labelStats.Text = title + Environment.NewLine + string.Format(
+                "Здоровых: {0}   Больных: {1}   Иммунных: {2}   Умерших: {3}",
+                simulation.Count(PersonState.Healthy),
+                simulation.Count(PersonState.Infected),
+                simulation.Count(PersonState.Immune),
+                simulation.Count(PersonState.Dead));
+        }
+
+        private void DrawField()
+        {
+            Bitmap bmp = new Bitmap(Simulation.Width * CellSize, Simulation.Height * CellSize);
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                for (int i = 0; i < Simulation.Height; i++)
+                {
+                    for (int j = 0; j < Simulation.Width; j++)
+                    {
+                        g.FillRectangle(BrushFor(simulation.GetState(i, j)), j * CellSize, i * CellSize, CellSize - 1, CellSize - 1);
+                    }
+                }
+            }
+
+            DisposeImage();
+            pictureBox1.Image = bmp;
+        }
+
+        private Brush BrushFor(PersonState state)
+        {
+            switch (state)
+            {
+                case PersonState.Infected: return infectedBrush;
+                case PersonState.Immune: return immuneBrush;
+                case PersonState.Dead: return deadBrush;
+                default: return healthyBrush;
+            }
+        }
+
+        /// <summary>Освобождает предыдущий кадр: раньше каждый кадр оставался в памяти.</summary>
+        private void DisposeImage()
+        {
+            Image old = pictureBox1.Image;
+            pictureBox1.Image = null;
+            if (old != null)
+                old.Dispose();
         }
     }
 }
