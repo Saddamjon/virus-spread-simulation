@@ -1,0 +1,13 @@
+# Visual Studio
+.vs/
+*.suo
+*.user
+
+# Результаты сборки
+bin/
+obj/
+TestResults/
+
+# NuGet
+packages/
+*.nupkg
