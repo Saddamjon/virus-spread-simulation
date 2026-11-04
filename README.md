@@ -1,54 +1,58 @@
-# Симуляция распространения вируса
+# Virus Spread Simulation
 
-Настольное приложение на C# (Windows Forms, .NET Framework 4.7.2): клеточный автомат, моделирующий эпидемию на поле 50×51. Каждая клетка это человек в одном из состояний: здоров, болен, иммунен, умер.
+[Русская версия](README.ru.md)
 
-![Эксперимент](docs/screenshots/experiment.png)
+A C# desktop application (Windows Forms, .NET Framework 4.7.2): a cellular automaton that models an epidemic on a 50×51 grid. Each cell is a person in one of four states: healthy, sick, immune or dead.
 
-![Настройки](docs/screenshots/settings.png)
+**Stack:** C#, .NET Framework 4.7.2, Windows Forms, xUnit.
 
-## Как это работает
+![Experiment](docs/screenshots/experiment.png)
 
-- Поле замкнуто по вертикали и ограничено по горизонтали. Эпидемия начинается с левой границы.
-- **Жизнь заражённого:** сначала инкубационный период (болен, но не заразен), затем дни болезни (заразен). После этого человек умирает с заданной вероятностью или получает иммунитет на заданный срок, а затем снова становится здоровым.
-- **Заражение:** каждый заразный сосед заражает здорового независимо, с вероятностью «Вероятность заражения».
-- **Соседи:** радиус 1 (четыре клетки по сторонам) или 2 (двенадцать клеток), галочки можно менять вручную.
-- **Исчезновение больных с границ:** ежедневная вероятность, что больной в первом или последнем столбце покидает поле и снова считается здоровым.
-- Эксперимент останавливается сам, когда прошло заданное число дней или больных не осталось. Над кнопками показаны день и число людей в каждом состоянии.
+![Settings](docs/screenshots/settings.png)
 
-Цвета: зелёный здоровые, красный больные, синий иммунные, тёмно-серый умершие.
+## How it works
 
-## Запуск
+- The grid wraps around vertically and is bounded horizontally. The epidemic starts from the left edge.
+- **Life of an infected person:** first an incubation period (sick but not contagious), then days of illness (contagious). After that the person dies with a given probability or becomes immune for a given number of days, and then becomes healthy again.
+- **Infection:** each contagious neighbor infects a healthy person independently, with the "Infection probability".
+- **Neighbors:** radius 1 (four cells on the sides) or 2 (twelve cells); the checkboxes can also be changed manually.
+- **Sick people leaving through the edges:** a daily probability that a sick person in the first or last column leaves the grid and is counted as healthy again.
+- The experiment stops by itself when the set number of days has passed or there are no sick people left. The current day and the number of people in each state are shown above the buttons.
 
-Откройте `CHMBP1.sln` в Visual Studio и запустите (F5) или соберите из командной строки:
+Colors: green for healthy, red for sick, blue for immune, dark gray for dead.
+
+## Running
+
+Open `CHMBP1.sln` in Visual Studio and run it (F5), or build from the command line:
 
 ```bash
 msbuild CHMBP1.sln /p:Configuration=Release
 ```
 
-Порядок работы: задайте параметры на вкладке «Настройки», нажмите «Применить», затем на вкладке «Эксперимент» нажмите «Старт» или «Следующий день».
+How to use: set the parameters on the «Настройки» (Settings) tab, click «Применить» (Apply), then on the «Эксперимент» (Experiment) tab click «Старт» (Start) or «Следующий день» (Next day).
 
-## Тесты
+## Tests
 
-Логика симуляции вынесена в `CHMBP1/Simulation.cs` и не зависит от Windows Forms. Тесты (xUnit) подключают этот файл напрямую:
+The simulation logic is extracted into `CHMBP1/Simulation.cs` and does not depend on Windows Forms. The tests (xUnit) include this file directly:
 
 ```bash
 dotnet test CHMBP1.Tests
 ```
 
-Тесты проверяют стартовое состояние, скорость распространения, инкубацию, длительность болезни, иммунитет, смертность, исчезновение с границ, воспроизводимость и проверку параметров.
+The tests check the initial state, spread speed, incubation, illness duration, immunity, mortality, leaving through the edges, reproducibility and parameter validation.
 
-## Что исправлено по сравнению с первой версией
+## What was fixed compared to the first version
 
-| Было | Стало |
+| Before | After |
 |---|---|
-| «Длительность эксперимента» читалась из поля «Начальный % иммунитета» (`textBox1`), а настоящее поле (`textBox5`) вообще не читалось | Каждый параметр читается из своего поля |
-| Длительность эксперимента, инкубационный период и «исчезновение с границ» были в интерфейсе, но ни на что не влияли | Все параметры работают, эксперимент останавливается по сроку |
-| Начальный иммунитет пропадал через день (счётчик дней был 0) | Он держится заданное число дней |
-| Время болезни не обнулялось: после потери иммунитета повторно заразившийся выздоравливал на следующий же день | Счётчик обнуляется при каждом заражении |
-| До нажатия «Применить» вирус работал с нулевыми параметрами (заражение 0 %, болезнь 0 дней) | Параметры применяются при запуске |
-| Поле «Радиус» было пустым: ни одна галочка соседей не стояла, а первый шаг падал на `int.Parse("")` | По умолчанию радиус 1, шаг не падает |
-| При 1 % больных в столбце из 50 клеток часто не было ни одного больного, и «ничего не происходило» | Если больные заданы, гарантированно появляется хотя бы один |
-| Некорректный ввод давал «error 001» | Понятное сообщение с названием поля, проверка диапазонов 0-100 |
-| На каждую клетку каждого кадра создавалась новая кисть, а старые кадры не освобождались: утечка памяти | Четыре кисти создаются один раз, кадры освобождаются |
-| «Умершие» были ярко-синими, а «иммунные» бледно-синими, больные бледно-розовыми | Контрастные цвета: красный, синий, тёмно-серый |
-| Подпись «Исчезновение больных с границ» перекрывалась полем ввода | Поле сдвинуто |
+| "Experiment duration" was read from the "Initial immunity %" field (`textBox1`), and the real field (`textBox5`) was not read at all | Each parameter is read from its own field |
+| Experiment duration, incubation period and "leaving through the edges" were in the UI but had no effect | All parameters work, and the experiment stops on time |
+| Initial immunity disappeared after one day (its day counter was 0) | It lasts the set number of days |
+| Illness time was not reset: after losing immunity, a re-infected person recovered the very next day | The counter is reset on every infection |
+| Before clicking "Apply", the virus ran with zero parameters (0% infection, 0 days of illness) | Parameters are applied on start |
+| The "Radius" field was empty: no neighbor checkbox was set, and the first step crashed on `int.Parse("")` | Radius 1 by default, and the step does not crash |
+| With 1% sick in a column of 50 cells there was often no sick person at all, and "nothing happened" | If sick people are set, at least one is guaranteed to appear |
+| Invalid input showed "error 001" | A clear message with the field name and a 0-100 range check |
+| A new brush was created for every cell in every frame, and old frames were not disposed: a memory leak | Four brushes are created once, and frames are disposed |
+| "Dead" was bright blue, "immune" was pale blue and "sick" was pale pink | Contrasting colors: red, blue, dark gray |
+| The "Sick people leaving through the edges" label was overlapped by an input field | The field was moved |
